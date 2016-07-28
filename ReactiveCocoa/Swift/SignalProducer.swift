@@ -1642,11 +1642,53 @@ extension SignalProducerProtocol {
 		// out of scope. This lets us know when we're supposed to dispose the
 		// underlying producer. This is necessary because `struct`s don't have
 		// `deinit`.
-		let token = DeallocationToken()
+		let lifetime = DeallocationToken()
 
 		let state = Atomic(ReplayState<Value, Error>())
 
-		let multicaster = SignalProducer<Value, Error> { observer, disposable in
+		let bootstrap = ActionDisposable {
+			// Start the underlying producer.
+			self.take(until: lifetime.deallocSignal)
+				.start { event in
+					let originalState = state.modify { state in
+						if let value = event.value {
+							for buffer in state.replayBuffers {
+								buffer.values.append(value)
+							}
+
+							if capacity == 0 {
+								state.values = []
+								return
+							}
+
+							if capacity == 1 {
+								state.values = [value]
+								return
+							}
+
+							state.values.append(value)
+
+							let overflow = state.values.count - capacity
+							if overflow > 0 {
+								state.values.removeSubrange(0..<overflow)
+							}
+						} else {
+							// Disconnect all observers and prevent future
+							// attachments.
+							state.terminationEvent = event
+							state.observers = nil
+						}
+					}
+
+					originalState.observers?.forEach { $0.action(event) }
+				}
+		}
+
+		return SignalProducer { observer, disposable in
+			// Don't dispose of the original producer until all observers
+			// have terminated.
+			disposable += { _ = lifetime }
+
 			var token: RemovalToken?
 
 			let replayBuffer = ReplayBuffer<Value>()
@@ -1688,53 +1730,6 @@ extension SignalProducerProtocol {
 					}
 				}
 			}
-		}
-
-		let bootstrap = ActionDisposable {
-			// Start the underlying producer.
-			self.take(until: token.deallocSignal)
-				.start { event in
-					let originalState = state.modify { state in
-						if let value = event.value {
-							for buffer in state.replayBuffers {
-								buffer.values.append(value)
-							}
-
-							if capacity == 0 {
-								state.values = []
-								return
-							}
-
-							if capacity == 1 {
-								state.values = [value]
-								return
-							}
-
-							state.values.append(value)
-
-							let overflow = state.values.count - capacity
-							if overflow > 0 {
-								state.values.removeSubrange(0..<overflow)
-							}
-						} else {
-							// Disconnect all observers and prevent future
-							// attachments.
-							state.terminationEvent = event
-							state.observers = nil
-						}
-					}
-
-					originalState.observers?.forEach { $0.action(event) }
-				}
-		}
-
-		return SignalProducer { observer, disposable in
-			// subscribe `observer` before starting the underlying producer.
-			disposable += multicaster.start(observer)
-
-			// Don't dispose of the original producer until all observers
-			// have terminated.
-			disposable += { _ = token }
 
 			// Start the underlying producer if it has never been started.
 			bootstrap.dispose()
