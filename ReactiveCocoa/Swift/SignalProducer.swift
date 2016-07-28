@@ -1644,7 +1644,7 @@ extension SignalProducerProtocol {
 		// `deinit`.
 		let token = DeallocationToken()
 
-		let state: Atomic<ReplayState<Value, Error>> = Atomic(ReplayState(upTo: capacity))
+		let state = Atomic(ReplayState<Value, Error>())
 
 		let multicaster = SignalProducer<Value, Error> { observer, disposable in
 			var token: RemovalToken?
@@ -1696,7 +1696,26 @@ extension SignalProducerProtocol {
 				.start { event in
 					let originalState = state.modify { state in
 						if let value = event.value {
-							state.add(value)
+							for buffer in state.replayBuffers {
+								buffer.values.append(value)
+							}
+
+							if capacity == 0 {
+								state.values = []
+								return
+							}
+
+							if capacity == 1 {
+								state.values = [value]
+								return
+							}
+
+							state.values.append(value)
+
+							let overflow = state.values.count - capacity
+							if overflow > 0 {
+								state.values.removeSubrange(0..<overflow)
+							}
 						} else {
 							// Disconnect all observers and prevent future
 							// attachments.
@@ -1738,9 +1757,6 @@ private final class ReplayBuffer<Value> {
 }
 
 private struct ReplayState<Value, Error: ErrorProtocol> {
-	/// The capacity of the caching producer.
-	let capacity: Int
-
 	/// All cached values.
 	var values: [Value] = []
 
@@ -1755,35 +1771,6 @@ private struct ReplayState<Value, Error: ErrorProtocol> {
 
 	/// The set of unused replay token identifiers.
 	var replayBuffers: Bag<ReplayBuffer<Value>> = Bag()
-
-	init(upTo capacity: Int) {
-		self.capacity = capacity
-	}
-
-	/// Cache a new value, and trim down the cache to the given capacity
-	/// if necessary.
-	mutating func add(_ value: Value) {
-		for buffer in replayBuffers {
-			buffer.values.append(value)
-		}
-
-		if capacity == 0 {
-			values = []
-			return
-		}
-
-		if capacity == 1 {
-			values = [ value ]
-			return
-		}
-
-		values.append(value)
-
-		let overflow = values.count - capacity
-		if overflow > 0 {
-			values.removeSubrange(0..<overflow)
-		}
-	}
 }
 
 /// Create a repeating timer of the given interval, with a reasonable default
