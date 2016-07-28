@@ -1657,7 +1657,7 @@ extension SignalProducerProtocol {
 							}
 
 							if capacity == 0 {
-								state.values = []
+								// `state.values` cannot be non-empty with a capacity of zero.
 								return
 							}
 
@@ -1670,7 +1670,7 @@ extension SignalProducerProtocol {
 
 							let overflow = state.values.count - capacity
 							if overflow > 0 {
-								state.values.removeSubrange(0..<overflow)
+								state.values.removeSubrange(0 ..< overflow)
 							}
 						} else {
 							// Disconnect all observers and prevent future
