@@ -1,0 +1,4 @@
+github "Quick/Nimble" "188caeb094bc342614d8a5c706cd8bb9a6c355eb"
+github "Quick/Quick" "816489f39f590d87801ba4cd24c68e86635855de"
+github "dvs15/Result" "2.1.3-swift-2.3"
+github "jspahrsummers/xcconfigs" "1ef97639ffbe041da0b1392b2114fa19b922a7a1"
